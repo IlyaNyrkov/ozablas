@@ -4,58 +4,38 @@
 #include <rocblas/rocblas.h>
 #include <stdexcept>
 #include <memory>
+#include <string>
 
-// Include our shared __device__ math and logic
 #include "pipeline/step1_statistics.hpp"
 #include "pipeline/step2_slicing.hpp"
 #include "pipeline/step4_reconstruction.hpp"
 
 namespace ozablas {
-namespace pipeline {
-
-// =============================================================================
-// ALLOCATE HARDWARE __constant__ MEMORY
-// =============================================================================
-
-__constant__ uint8_t  c_moduli_all[crt::MAX_SLICES];
-
-// Scheme II: Large slice (>7)
-__constant__ uint64_t c_M_prod_20[crt::MAX_SLICES][4];
-__constant__ uint64_t c_M_half_20[crt::MAX_SLICES][4];
-__constant__ uint64_t c_partial_moduli_20[crt::MAX_SLICES][crt::MAX_SLICES][4];
-__constant__ uint64_t c_mod_inv_20[crt::MAX_SLICES][crt::MAX_SLICES];
-
-} // namespace pipeline
-
 namespace hip {
 
-// =============================================================================
-// LAZY INITIALIZATION TRIGGER
-// =============================================================================
+// Helper macro to guarantee constant memory doesn't silently fail
+#define CHECK_HIP_SYMBOL(cmd) \
+    do { \
+        hipError_t err = cmd; \
+        if (err != hipSuccess) { \
+            throw std::runtime_error(std::string("OzaBLAS Constant Memory Error: ") + hipGetErrorString(err)); \
+        } \
+    } while(0)
 
 void initialize_constant_memory() {
-    // Copy the constexpr CPU arrays into the GPU __constant__ cache
-    hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_moduli_all), crt::moduli_all, sizeof(crt::moduli_all));
+    // We drop HIP_SYMBOL macro which mangles namespaces on some ROCm versions
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_moduli_all, crt::moduli_all, sizeof(crt::moduli_all)));
 
-    (void)hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_moduli_all), crt::moduli_all, sizeof(crt::moduli_all));
-    (void)hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_M_prod_20), crt::M_prod_20, sizeof(crt::M_prod_20));
-    (void)hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_M_half_20), crt::M_half_20, sizeof(crt::M_half_20));
-    (void)hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_partial_moduli_20), crt::partial_moduli_20, sizeof(crt::partial_moduli_20));
-    (void)hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_mod_inv_20), crt::mod_inv_20, sizeof(crt::mod_inv_20));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_M_prod_20, crt::M_prod_20, sizeof(crt::M_prod_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_M_half_20, crt::M_half_20, sizeof(crt::M_half_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_partial_moduli_20, crt::partial_moduli_20, sizeof(crt::partial_moduli_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_mod_inv_20, crt::mod_inv_20, sizeof(crt::mod_inv_20)));
 }
-
-// =============================================================================
-// HELPER: GRID CONFIGURATION
-// =============================================================================
 
 inline dim3 get_block_dim() { return dim3(16, 16); }
 inline dim3 get_grid_dim(size_t rows, size_t cols) {
     return dim3((cols + 15) / 16, (rows + 15) / 16);
 }
-
-// =============================================================================
-// SCHEME I: SUM AND SCALE PIPELINE
-// =============================================================================
 
 void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C) {
     int M = static_cast<int>(ws.get_M());
@@ -69,11 +49,8 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
     dim3 gridC = get_grid_dim(M, N);
 
     int threads1D = 256;
-
-    // Step 1: Compute Shifts
     int beta = pipeline::calculate_scheme1_beta(K);
 
-    // AMD WarpSize is 64. Dynamic shared memory: (256 / 64) * sizeof(int)
     size_t shared_mem_bytes = (threads1D / 64) * sizeof(int);
     pipeline::compute_row_shifts_A<64><<<M, threads1D, shared_mem_bytes>>>(
         A, M, K, 0, ws.get_shift_A()
@@ -84,11 +61,9 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
         B, K, N, 0, ws.get_shift_B()
     );
 
-    // Step 2: Extract Slices
     pipeline::slice_scheme1_A<<<gridA, block2D>>>(A, ws.get_shift_A(), M, K, slices, beta, ws.get_A_slices());
     pipeline::slice_scheme1_B<<<gridB, block2D>>>(B, ws.get_shift_B(), K, N, slices, beta, ws.get_B_slices());
 
-    // Step 3: Tensor Core Multiply (Cross-Terms)
     auto exec = std::dynamic_pointer_cast<const HipExecutor>(ws.get_executor());
     rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
 
@@ -101,7 +76,6 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
             int8_t* B_t = ws.get_B_slices() + t * K * N;
             int32_t* C_t = ws.get_C_tc() + gemm_idx * M * N;
 
-            // Row-major trick: C^T = B^T * A^T
             rocblas_gemm_ex(
                 handle, rocblas_operation_none, rocblas_operation_none,
                 N, M, K, &alpha,
@@ -115,15 +89,10 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
         }
     }
 
-    // Step 4: Group-wise Accumulation
     pipeline::reconstruct_scheme1<<<gridC, block2D>>>(
         ws.get_C_tc(), ws.get_shift_A(), ws.get_shift_B(), M, N, slices, beta, C
     );
 }
-
-// =============================================================================
-// SCHEME II: CRT PIPELINE
-// =============================================================================
 
 void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C) {
     int M = static_cast<int>(ws.get_M());
@@ -137,7 +106,6 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
     dim3 gridC = get_grid_dim(M, N);
     int threads1D = 256;
 
-    // Step 1: Compute Shifts
     crt::uint256_t M_prod(crt::M_prod_20[slices - 1]);
     double M_double = crt::to_double_256(M_prod);
     int32_t K_param = pipeline::calculate_scheme2_k_param(M_double, K);
@@ -152,17 +120,15 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
         B, K, N, K_param, ws.get_shift_B()
     );
 
-    // Step 2: Symmetric Modulo Slicing
     pipeline::slice_scheme2_A<<<gridA, block2D>>>(A, ws.get_shift_A(), M, K, slices, ws.get_A_slices());
     pipeline::slice_scheme2_B<<<gridB, block2D>>>(B, ws.get_shift_B(), K, N, slices, ws.get_B_slices());
 
-    // Step 3: Strided Batched Tensor Core Multiply
     auto exec = std::dynamic_pointer_cast<const HipExecutor>(ws.get_executor());
     rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
 
     const int32_t alpha = 1, beta_gemm = 0;
 
-    // Row-major trick: C^T = B^T * A^T
+    // Mathematically perfect translation of C = A * B in Row-Major to C^T = B^T * A^T in Col-Major
     rocblas_gemm_strided_batched_ex(
         handle, rocblas_operation_none, rocblas_operation_none,
         N, M, K, &alpha,
@@ -173,7 +139,6 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
         slices, rocblas_datatype_i32_r, rocblas_gemm_algo_standard, 0, 0
     );
 
-    // Step 4: CRT Reconstruction
     if (slices <= 7) {
         pipeline::reconstruct_scheme2_leq7<<<gridC, block2D>>>(
             ws.get_C_tc(), ws.get_shift_A(), ws.get_shift_B(), M, N, slices, C

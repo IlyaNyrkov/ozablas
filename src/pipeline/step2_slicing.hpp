@@ -5,21 +5,10 @@
 
 #include "common/crt_math.hpp"
 #include "common/crt_tables.hpp"
+#include "pipeline/constants.hpp"
 
 namespace ozablas {
 namespace pipeline {
-
-// =============================================================================
-// GLOBAL CONSTANT MEMORY DECLARATIONS
-// =============================================================================
-
-// The backend (.cu / .hip) files will define this and initialize it.
-// By declaring it extern __constant__, these inline device kernels can read
-// it directly from the ultra-fast constant cache.
-#if defined(__CUDACC__) || defined(__HIPCC__)
-extern __constant__ uint8_t c_moduli_all[crt::MAX_SLICES];
-#endif
-
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================

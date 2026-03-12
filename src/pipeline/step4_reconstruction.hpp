@@ -5,6 +5,7 @@
 
 #include "common/crt_math.hpp"
 #include "common/crt_tables.hpp"
+#include "pipeline/constants.hpp"
 
 namespace ozablas {
 namespace pipeline {
@@ -12,18 +13,6 @@ namespace pipeline {
 // =============================================================================
 // GLOBAL CONSTANT MEMORY DECLARATIONS
 // =============================================================================
-
-#if defined(__CUDACC__) || defined(__HIPCC__)
-// Universal Moduli
-extern __constant__ uint8_t  c_moduli_all[crt::MAX_SLICES];
-
-// Scheme II: Large slice (>7) fast-path constants
-extern __constant__ uint64_t c_M_prod_20[crt::MAX_SLICES][4];
-extern __constant__ uint64_t c_M_half_20[crt::MAX_SLICES][4];
-extern __constant__ uint64_t c_partial_moduli_20[crt::MAX_SLICES][crt::MAX_SLICES][4];
-extern __constant__ uint64_t c_mod_inv_20[crt::MAX_SLICES][crt::MAX_SLICES];
-
-#endif
 
 // =============================================================================
 // SCHEME I RECONSTRUCTION

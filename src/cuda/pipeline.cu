@@ -16,8 +16,6 @@ namespace cuda {
 // =============================================================================
 // LAZY INITIALIZATION TRIGGER
 // =============================================================================
-// Note: In CUDA, we don't need HIP_SYMBOL. The symbol name itself maps perfectly.
-
 void initialize_constant_memory() {
     cudaMemcpyToSymbol(pipeline::c_moduli_all, crt::moduli_all, sizeof(crt::moduli_all));
 
