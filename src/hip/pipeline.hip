@@ -23,13 +23,12 @@ namespace hip {
     } while(0)
 
 void initialize_constant_memory() {
-    // We drop HIP_SYMBOL macro which mangles namespaces on some ROCm versions
-    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_moduli_all, crt::moduli_all, sizeof(crt::moduli_all)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_moduli_all), crt::moduli_all, sizeof(crt::moduli_all)));
 
-    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_M_prod_20, crt::M_prod_20, sizeof(crt::M_prod_20)));
-    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_M_half_20, crt::M_half_20, sizeof(crt::M_half_20)));
-    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_partial_moduli_20, crt::partial_moduli_20, sizeof(crt::partial_moduli_20)));
-    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(pipeline::c_mod_inv_20, crt::mod_inv_20, sizeof(crt::mod_inv_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_M_prod_20), crt::M_prod_20, sizeof(crt::M_prod_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_M_half_20), crt::M_half_20, sizeof(crt::M_half_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_partial_moduli_20), crt::partial_moduli_20, sizeof(crt::partial_moduli_20)));
+    CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(pipeline::c_mod_inv_20), crt::mod_inv_20, sizeof(crt::mod_inv_20)));
 }
 
 inline dim3 get_block_dim() { return dim3(16, 16); }
