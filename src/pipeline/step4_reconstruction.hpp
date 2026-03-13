@@ -18,50 +18,35 @@ namespace pipeline {
  * @brief Reconstructs the final FP64 matrix for Scheme I using Group-wise accumulation.
  * Implements Algorithm 7: C = C + diag(mu'') 2^{-beta*g + 2} FP64(C''') diag(nu'')
  */
-__global__ void reconstruct_scheme1(
-    const int32_t* __restrict__ C_tc,
-    const int32_t* __restrict__ neg_exp_A, // From Step 1
-    const int32_t* __restrict__ neg_exp_B, // From Step 1
-    int rows, int cols, int k_slices, int beta,
-    double* __restrict__ C_out)
-{
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    __global__ void reconstruct_scheme1_group(
+        const int32_t* __restrict__ C_tc_group,
+        const int32_t* __restrict__ neg_exp_A,
+        const int32_t* __restrict__ neg_exp_B,
+        int rows, int cols, int g, int beta,
+        double* __restrict__ C_out)
+    {
+        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (row < rows && col < cols) {
-        int idx = row * cols + col;
-        double accum = 0.0;
+        if (row < rows && col < cols) {
+            int idx = row * cols + col;
 
-        // Recover original exponents
-        int e_i = -neg_exp_A[row];
-        int e_j = -neg_exp_B[col];
+            int e_i = -neg_exp_A[row];
+            int e_j = -neg_exp_B[col];
 
-        // mu''_i = 2^{e_i + 1 - beta} and nu''_j = 2^{e_j + 1 - beta}
-        double u_i = ldexp(1.0, e_i + 1 - beta);
-        double v_j = ldexp(1.0, e_j + 1 - beta);
+            double u_i = ldexp(1.0, e_i + 1 - beta);
+            double v_j = ldexp(1.0, e_j + 1 - beta);
 
-        int gemm_idx = 0;
+            int32_t val = C_tc_group[idx];
 
-        // Accumulate upper-triangular combinations
-        for (int s = 0; s < k_slices; ++s) {
-            for (int t = 0; t < k_slices - s; ++t) {
-                int32_t val = C_tc[gemm_idx * rows * cols + idx];
+            // in original paper there is wrong formula u_i * v_j * 2^(-beta * g + 2)
+            // the correct formula is 2^(-beta * g + 2 * beta)
+            double scale = ldexp(u_i * v_j, -beta * g + 2 * beta);
 
-                // Calculate 'g' (1-indexed algorithm mapping)
-                // If s and t are 0-indexed, g = (s+1) + (t+1) = s + t + 2
-                int g = s + t + 2;
-
-                // Scale factor: 2^{-beta * g + 2} * mu''_i * nu''_j
-                double scale = ldexp(u_i * v_j, -beta * g + 2);
-
-                accum += static_cast<double>(val) * scale;
-                gemm_idx++;
-            }
+            // Accumulate into the output matrix directly
+            C_out[idx] += static_cast<double>(val) * scale;
         }
-
-        C_out[idx] = accum;
     }
-}
 
 // =============================================================================
 // SCHEME II RECONSTRUCTION (CRT)

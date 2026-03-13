@@ -117,9 +117,9 @@ if(OZABLAS_BUILD_TESTS)
 endif()
 
 if(OZABLAS_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
+    add_subdirectory(performance_benchmarks)
 endif()
 
 if(OZABLAS_BUILD_EXAMPLES)
-    add_subdirectory(examples)
+    add_subdirectory(precision_benchmarks)
 endif()

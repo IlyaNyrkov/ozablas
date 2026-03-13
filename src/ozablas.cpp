@@ -19,14 +19,14 @@ namespace ozablas {
 // OZAKI SCHEME I DISPATCHER
 // =============================================================================
 
-void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C) {
+void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C, OzaTimings* timings) {
     // Extract the executor from the workspace
     auto exec = ws.get_executor();
 
     // Route to NVIDIA CUDA Backend
     if (auto cuda_exec = dynamic_cast<const CudaExecutor*>(exec.get())) {
 #ifdef OZA_BUILD_CUDA
-        cuda::ozaki_scheme1_gemm(ws, A, B, C);
+        cuda::ozaki_scheme1_gemm(ws, A, B, C, timings);
 #else
         throw std::runtime_error("OzaBLAS: CUDA backend requested but library was not built with CUDA support.");
 #endif
@@ -34,7 +34,7 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
     // Route to AMD HIP Backend
     else if (auto hip_exec = dynamic_cast<const HipExecutor*>(exec.get())) {
 #ifdef OZA_BUILD_HIP
-        hip::ozaki_scheme1_gemm(ws, A, B, C);
+        hip::ozaki_scheme1_gemm(ws, A, B, C, timings);
 #else
         throw std::runtime_error("OzaBLAS: HIP backend requested but library was not built with HIP support.");
 #endif
@@ -49,13 +49,13 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
 // OZAKI SCHEME II (CRT) DISPATCHER
 // =============================================================================
 
-void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C) {
+void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C, OzaTimings* timings) {
     auto exec = ws.get_executor();
 
     if (auto cuda_exec = dynamic_cast<const CudaExecutor*>(exec.get())) {
 #ifdef OZA_BUILD_CUDA
         // The CUDA bridge internally handles the S <= 7 vs S > 7 kernel selection
-        cuda::ozaki_scheme2_gemm(ws, A, B, C);
+        cuda::ozaki_scheme2_gemm(ws, A, B, C, timings);
 #else
         throw std::runtime_error("OzaBLAS: CUDA backend requested but library was not built with CUDA support.");
 #endif
@@ -63,7 +63,7 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
     else if (auto hip_exec = dynamic_cast<const HipExecutor*>(exec.get())) {
 #ifdef OZA_BUILD_HIP
         // The HIP bridge internally handles the S <= 7 vs S > 7 kernel selection
-        hip::ozaki_scheme2_gemm(ws, A, B, C);
+        hip::ozaki_scheme2_gemm(ws, A, B, C, timings);
 #else
         throw std::runtime_error("OzaBLAS: HIP backend requested but library was not built with HIP support.");
 #endif

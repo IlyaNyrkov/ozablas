@@ -93,4 +93,13 @@ private:
     int32_t* d_C_tc_      = nullptr; // Holds exactly S matrices
 };
 
+// A lightweight struct to hold pipeline execution times
+struct OzaTimings {
+    float step1_ms = 0.0f; // Matrix Statistics
+    float step2_ms = 0.0f; // Slicing
+    float step3_ms = 0.0f; // Tensor Core GEMM
+    float step4_ms = 0.0f; // Sum & Scale / Reconstruction
+    float total_ms = 0.0f;
+};
+
 } // namespace ozablas

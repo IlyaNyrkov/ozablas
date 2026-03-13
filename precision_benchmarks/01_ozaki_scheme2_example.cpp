@@ -1,4 +1,4 @@
-// examples/01_ozaki_scheme2_example.cpp
+// precision_benchmarks/01_ozaki_scheme2_example.cpp
 #include <iostream>
 #include <vector>
 #include <memory>

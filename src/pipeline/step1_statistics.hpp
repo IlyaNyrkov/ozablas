@@ -30,7 +30,7 @@ __global__ void compute_row_shifts_A(
     int row = blockIdx.x;
     if (row >= rows) return;
 
-    int local_max = -999999;
+    int local_max = -1023;
 
     for (int col = threadIdx.x; col < cols; col += blockDim.x) {
         double v = fabs(A[row * cols + col]);
@@ -85,7 +85,7 @@ __global__ void compute_col_shifts_B(
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     if (col >= cols) return;
 
-    int local_max = -999999;
+    int local_max = -1023;
     for (int row = 0; row < rows; ++row) {
         double v = fabs(B[row * cols + col]);
         if (v > 0.0) {

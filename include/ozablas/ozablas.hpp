@@ -8,6 +8,8 @@ namespace ozablas {
     class WorkspaceScheme1;
     class WorkspaceScheme2;
 
+    struct OzaTimings;
+
     /**
      * @brief Computes C = A * B using Ozaki Scheme I (Sum and Scale).
      * * @param ws The pre-allocated workspace containing execution context and dimensions.
@@ -15,12 +17,7 @@ namespace ozablas {
      * @param B  Pointer to device memory for matrix B (size K x N).
      * @param C  Pointer to device memory for output matrix C (size M x N).
      */
-    void ozaki_scheme1_gemm(
-        WorkspaceScheme1& ws,
-        const double* A,
-        const double* B,
-        double* C
-    );
+    void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C, OzaTimings* timings = nullptr);
 
     /**
      * @brief Computes C = A * B using Ozaki Scheme II (Chinese Remainder Theorem).
@@ -31,11 +28,6 @@ namespace ozablas {
      * @param B  Pointer to device memory for matrix B (size K x N).
      * @param C  Pointer to device memory for output matrix C (size M x N).
      */
-    void ozaki_scheme2_gemm(
-        WorkspaceScheme2& ws,
-        const double* A,
-        const double* B,
-        double* C
-    );
+    void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C, OzaTimings* timings = nullptr);
 
 } // namespace ozablas

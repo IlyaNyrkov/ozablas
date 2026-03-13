@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "pipeline/step1_statistics.hpp"
 #include "pipeline/step2_slicing.hpp"
@@ -36,7 +37,26 @@ inline dim3 get_grid_dim(size_t rows, size_t cols) {
     return dim3((cols + 15) / 16, (rows + 15) / 16);
 }
 
-void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C) {
+// =============================================================================
+// SCHEME I: SUM AND SCALE PIPELINE
+// =============================================================================
+
+void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C, OzaTimings* timings) {
+
+    const int MAX_EVENTS = 64; // Safe upper bound for group tracking
+    hipEvent_t start, e1, e2;
+    hipEvent_t ev_gemm_start[MAX_EVENTS], ev_gemm_end[MAX_EVENTS], ev_recon_end[MAX_EVENTS];
+
+    if (timings) {
+        hipEventCreate(&start); hipEventCreate(&e1); hipEventCreate(&e2);
+        for(int i = 0; i < MAX_EVENTS; ++i) {
+            hipEventCreate(&ev_gemm_start[i]);
+            hipEventCreate(&ev_gemm_end[i]);
+            hipEventCreate(&ev_recon_end[i]);
+        }
+        hipEventRecord(start);
+    }
+
     int M = static_cast<int>(ws.get_M());
     int N = static_cast<int>(ws.get_N());
     int K = static_cast<int>(ws.get_K());
@@ -50,6 +70,11 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
     int threads1D = 256;
     int beta = pipeline::calculate_scheme1_beta(K);
 
+    // ==========================================
+    // Step 1: Compute Shifts & Zero Output
+    // ==========================================
+    hipMemset(C, 0, M * N * sizeof(double));
+
     pipeline::compute_row_shifts_A<<<M, threads1D>>>(
         A, M, K, 0, ws.get_shift_A()
     );
@@ -59,20 +84,39 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
         B, K, N, 0, ws.get_shift_B()
     );
 
+    if (timings) hipEventRecord(e1);
+
+    // ==========================================
+    // Step 2: Extract Slices
+    // ==========================================
     pipeline::slice_scheme1_A<<<gridA, block2D>>>(A, ws.get_shift_A(), M, K, slices, beta, ws.get_A_slices());
     pipeline::slice_scheme1_B<<<gridB, block2D>>>(B, ws.get_shift_B(), K, N, slices, beta, ws.get_B_slices());
 
+    if (timings) hipEventRecord(e2);
+
+    // ==========================================
+    // Step 3 & 4: Interleaved GEMM and Reconstruction
+    // ==========================================
     auto exec = std::dynamic_pointer_cast<const HipExecutor>(ws.get_executor());
     rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
 
-    const int32_t alpha = 1, beta_gemm = 0;
-    int gemm_idx = 0;
+    const int32_t alpha = 1;
+    int32_t* C_t = ws.get_C_tc();
 
-    for (int s = 0; s < slices; ++s) {
-        for (int t = 0; t < slices - s; ++t) {
-            int8_t* A_t = ws.get_A_slices() + s * M * K;
-            int8_t* B_t = ws.get_B_slices() + t * K * N;
-            int32_t* C_t = ws.get_C_tc() + gemm_idx * M * N;
+    for (int g = 2; g <= slices + 1; ++g) {
+        if (timings && g < MAX_EVENTS) hipEventRecord(ev_gemm_start[g]);
+
+        bool first_in_group = true;
+
+        for (int s = 1; s <= g - 1; ++s) {
+            int t = g - s;
+
+            if (s > slices || t > slices) continue;
+
+            int8_t* A_t = ws.get_A_slices() + (s - 1) * M * K;
+            int8_t* B_t = ws.get_B_slices() + (t - 1) * K * N;
+
+            int32_t beta_gemm = first_in_group ? 0 : 1;
 
             rocblas_gemm_ex(
                 handle, rocblas_operation_none, rocblas_operation_none,
@@ -83,16 +127,63 @@ void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, 
                 C_t, rocblas_datatype_i32_r, N,
                 rocblas_datatype_i32_r, rocblas_gemm_algo_standard, 0, 0
             );
-            gemm_idx++;
+            first_in_group = false;
         }
+
+        if (timings && g < MAX_EVENTS) hipEventRecord(ev_gemm_end[g]);
+
+        pipeline::reconstruct_scheme1_group<<<gridC, block2D>>>(
+            C_t, ws.get_shift_A(), ws.get_shift_B(), M, N, g, beta, C
+        );
+
+        if (timings && g < MAX_EVENTS) hipEventRecord(ev_recon_end[g]);
     }
 
-    pipeline::reconstruct_scheme1<<<gridC, block2D>>>(
-        ws.get_C_tc(), ws.get_shift_A(), ws.get_shift_B(), M, N, slices, beta, C
-    );
+    // ==========================================
+    // Timing Collection
+    // ==========================================
+    if (timings) {
+        hipEventSynchronize(ev_recon_end[slices + 1]);
+
+        hipEventElapsedTime(&timings->step1_ms, start, e1);
+        hipEventElapsedTime(&timings->step2_ms, e1, e2);
+
+        float total_gemm = 0.0f, total_recon = 0.0f;
+        for (int g = 2; g <= slices + 1; ++g) {
+            if (g >= MAX_EVENTS) break;
+            float ms_gemm = 0.0f, ms_recon = 0.0f;
+            hipEventElapsedTime(&ms_gemm, ev_gemm_start[g], ev_gemm_end[g]);
+            hipEventElapsedTime(&ms_recon, ev_gemm_end[g], ev_recon_end[g]);
+            total_gemm += ms_gemm;
+            total_recon += ms_recon;
+        }
+
+        timings->step3_ms = total_gemm;
+        timings->step4_ms = total_recon;
+        hipEventElapsedTime(&timings->total_ms, start, ev_recon_end[slices + 1]);
+
+        hipEventDestroy(start); hipEventDestroy(e1); hipEventDestroy(e2);
+        for(int i = 0; i < MAX_EVENTS; ++i) {
+            hipEventDestroy(ev_gemm_start[i]);
+            hipEventDestroy(ev_gemm_end[i]);
+            hipEventDestroy(ev_recon_end[i]);
+        }
+    }
 }
 
-void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C) {
+// =============================================================================
+// SCHEME II: CRT PIPELINE
+// =============================================================================
+
+void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C, OzaTimings* timings) {
+
+    hipEvent_t start, e1, e2, e3, e4;
+    if (timings) {
+        hipEventCreate(&start); hipEventCreate(&e1); hipEventCreate(&e2);
+        hipEventCreate(&e3); hipEventCreate(&e4);
+        hipEventRecord(start);
+    }
+
     int M = static_cast<int>(ws.get_M());
     int N = static_cast<int>(ws.get_N());
     int K = static_cast<int>(ws.get_K());
@@ -104,6 +195,9 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
     dim3 gridC = get_grid_dim(M, N);
     int threads1D = 256;
 
+    // ==========================================
+    // Step 1: Compute Shifts
+    // ==========================================
     crt::uint256_t M_prod(crt::M_prod_20[slices - 1]);
     double M_double = crt::to_double_256(M_prod);
     int32_t K_param = pipeline::calculate_scheme2_k_param(M_double, K);
@@ -117,15 +211,25 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
         B, K, N, K_param, ws.get_shift_B()
     );
 
+    if (timings) hipEventRecord(e1);
+
+    // ==========================================
+    // Step 2: Symmetric Modulo Slicing
+    // ==========================================
     pipeline::slice_scheme2_A<<<gridA, block2D>>>(A, ws.get_shift_A(), M, K, slices, ws.get_A_slices());
     pipeline::slice_scheme2_B<<<gridB, block2D>>>(B, ws.get_shift_B(), K, N, slices, ws.get_B_slices());
 
+    if (timings) hipEventRecord(e2);
+
+    // ==========================================
+    // Step 3: Strided Batched Tensor Core Multiply
+    // ==========================================
     auto exec = std::dynamic_pointer_cast<const HipExecutor>(ws.get_executor());
     rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
 
     const int32_t alpha = 1, beta_gemm = 0;
 
-    // Mathematically perfect translation of C = A * B in Row-Major to C^T = B^T * A^T in Col-Major
+    // Row-major trick: C^T = B^T * A^T
     rocblas_gemm_strided_batched_ex(
         handle, rocblas_operation_none, rocblas_operation_none,
         N, M, K, &alpha,
@@ -136,6 +240,11 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
         slices, rocblas_datatype_i32_r, rocblas_gemm_algo_standard, 0, 0
     );
 
+    if (timings) hipEventRecord(e3);
+
+    // ==========================================
+    // Step 4: CRT Reconstruction
+    // ==========================================
     if (slices <= 7) {
         pipeline::reconstruct_scheme2_leq7<<<gridC, block2D>>>(
             ws.get_C_tc(), ws.get_shift_A(), ws.get_shift_B(), M, N, slices, C
@@ -144,6 +253,20 @@ void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, 
         pipeline::reconstruct_scheme2_gt7<<<gridC, block2D>>>(
             ws.get_C_tc(), ws.get_shift_A(), ws.get_shift_B(), M, N, slices, C
         );
+    }
+
+    if (timings) {
+        hipEventRecord(e4);
+        hipEventSynchronize(e4);
+
+        hipEventElapsedTime(&timings->step1_ms, start, e1);
+        hipEventElapsedTime(&timings->step2_ms, e1, e2);
+        hipEventElapsedTime(&timings->step3_ms, e2, e3);
+        hipEventElapsedTime(&timings->step4_ms, e3, e4);
+        hipEventElapsedTime(&timings->total_ms, start, e4);
+
+        hipEventDestroy(start); hipEventDestroy(e1); hipEventDestroy(e2);
+        hipEventDestroy(e3); hipEventDestroy(e4);
     }
 }
 

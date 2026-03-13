@@ -15,23 +15,15 @@ namespace ozablas {
         /**
          * @brief HIP backend implementation for Ozaki Scheme I.
          */
-        void ozaki_scheme1_gemm(
-            WorkspaceScheme1& ws,
-            const double* A,
-            const double* B,
-            double* C
-        );
+        void ozaki_scheme1_gemm(WorkspaceScheme1& ws, const double* A, const double* B, double* C, OzaTimings* timings = nullptr);
+
 
         /**
          * @brief HIP backend implementation for Ozaki Scheme II.
          * Automatically dispatches to 64-bit or 256-bit kernels internally.
          */
-        void ozaki_scheme2_gemm(
-            WorkspaceScheme2& ws,
-            const double* A,
-            const double* B,
-            double* C
-        );
+        void ozaki_scheme2_gemm(WorkspaceScheme2& ws, const double* A, const double* B, double* C, OzaTimings* timings = nullptr);
+
 
     } // namespace hip
 } // namespace ozablas
