@@ -30,7 +30,7 @@ make release-hip
 
 ### Quick Start Example
 
-OzaBLAS uses a unified API. You write your application code once, and simply swap the `Executor` to target different hardware. Here is how to multiply matrices on an AMD GPU using Ozaki Scheme II, while capturing pipeline step timings.
+OzaBLAS uses a unified API. You write your application code once, and simply swap the `Executor` to target different hardware. This an example of matrix multiplication on an AMD GPU using Ozaki Scheme II, while capturing pipeline step timings.
 
 ```cpp
 #include <ozablas/ozablas.hpp>
@@ -112,7 +112,7 @@ ozablas/
 │   ├── common/                    
 │   │   ├── crt_tables.hpp         # Pure C++ constexpr arrays for Scheme II moduli and lookup tables.
 │   │   └── crt_math.hpp           # Custom 256-bit struct and math logic for large slices.
-│   ├── pipeline/                  # The 4 anatomical steps of the algorithm (Shared __device__ code).
+│   ├── pipeline/                  # The 4 steps of the algorithm (Shared __device__ code).
 │   │   ├── step1_statistics.hpp   
 │   │   ├── step2_slicing.hpp      
 │   │   └── step4_reconstruction.hpp  
@@ -192,11 +192,11 @@ The core theoretical advantage of the Ozaki scheme is that computing matrix stat
 ![Step by Size Scheme 1](docs/media/benchmarks/210_step_bench_to_mt_size_scheme1.png)
 
 **Ozaki Scheme 2**
-![Step by Size Scheme 2](docs/media/benchmarks/210_step_bench_to_mt_size_scheme2.png) |
+![Step by Size Scheme 2](docs/media/benchmarks/210_step_bench_to_mt_size_scheme2.png)
 
 **Breakdown by Slice Count:**
 **Ozaki Scheme 1**
 ![Step by Slices Scheme 1](docs/media/benchmarks/210_step_bench_to_slices_scheme1.png)
 
 **Ozaki Scheme 2**
-![Step by Slices Scheme 2](docs/media/benchmarks/210_step_bench_to_slices_scheme2.png) |
+![Step by Slices Scheme 2](docs/media/benchmarks/210_step_bench_to_slices_scheme2.png)
