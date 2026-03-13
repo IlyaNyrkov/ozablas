@@ -40,7 +40,7 @@ OzaBLAS uses a unified API. You write your application code once, and simply swa
 
 int main() {
     int M = 4096, N = 4096, K = 4096;
-    int slices = 4; // Sweet-spot config for speed vs accuracy
+    int slices = 4; // Defines accuracy
 
     // 1. Initialize the hardware-specific executor (AMD HIP)
     auto exec = std::make_shared<ozablas::HipExecutor>(0);
@@ -61,8 +61,7 @@ int main() {
     std::cout << "Total Pipeline Time: " << timings.total_ms << " ms\n";
 
     return 0;
-}
-
+} 
 ```
 
 ## How It Works (Architecture)
@@ -146,8 +145,7 @@ ozablas/
     ├── 02_ozaki_scheme2_fp128_benchmark.cpp
     ├── 03_ozaki_scheme1_example.cpp
     ├── 04_ozaki_scheme1_fp128_benchmark.cpp
-    └── CMakeLists.txt             
-
+    └── CMakeLists.txt
 ```
 
 ## Running Benchmarks
@@ -167,12 +165,12 @@ Because OzaBLAS breaks a single FP64 multiplication into multiple INT8 multiplic
 
 $$k < \frac{P_{INT8}}{P_{FP64}} = \frac{181.0 \text{ TOPS}}{45.3 \text{ TFLOPS}} \approx 4$$
 
-Where $k$ is the number of slices. To get a speedup $> 1$ over native FP64, we generally need to use fewer than 4 or 5 slices. Ultimately, it is a strict tradeoff: **more slices = better accuracy but worse performance**, while **less slices = worse accuracy but better performance**.
-
-Here is how OzaBLAS performs in reality on the MI210.
+Where $k$ is the number of slices. To get a speedup $> 1$ over native FP64, we generally need to use fewer than 4 or 5 slices. Ultimately, it is a strict tradeoff: 
+* **more slices** = better accuracy but worse performance
+* **fewer slices** = worse accuracy but better performance
 
 #### Raw Throughput (TFLOPS) vs. Matrix Size
-As the matrix size increases, the heavy memory-bound prep work becomes negligible, allowing the INT8 Tensor Cores to stretch their legs. For $S=3$ and $S=4$, OzaBLAS significantly outperforms native `rocBLAS` FP64 DGEMM (represented by the black dashed line).
+As the matrix size increases, the heavy memory-bound prep work becomes negligible, allowing the INT8 Tensor Cores to overtake overall computation. For $S=3$ and $S=4$, OzaBLAS significantly outperforms native `rocBLAS` FP64 DGEMM (represented by the black dashed line).
 
 | Scheme I (Sum and Scale) | Scheme II (CRT) |
 | :---: | :---: |

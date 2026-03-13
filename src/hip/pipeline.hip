@@ -23,6 +23,10 @@ namespace hip {
         } \
     } while(0)
 
+
+// =============================================================================
+// LAZY INITIALIZATION TRIGGER
+// =============================================================================
 void initialize_constant_memory() {
     CHECK_HIP_SYMBOL(hipMemcpyToSymbol(HIP_SYMBOL(OZA_c_moduli_all), crt::moduli_all, sizeof(crt::moduli_all)));
 

@@ -63,7 +63,6 @@ __global__ void slice_scheme1_A(
             double A_s = extract_fp64_rn(aij, sigma);
 
             double normalized = A_s * inv_scale_factor;
-            // FIXED: Removed the minus sign to match Algorithm 8 Line 6 perfectly
             double scaled = ldexp(normalized, beta * s);
             A_slices[s * rows * cols + idx] = static_cast<int8_t>(scaled);
             aij -= A_s;
@@ -93,7 +92,6 @@ __global__ void slice_scheme1_B(
             double B_s = extract_fp64_rn(bij, sigma);
 
             double normalized = B_s * inv_scale_factor;
-            // FIXED: Removed the minus sign to match Algorithm 8 Line 6 perfectly
             double scaled = ldexp(normalized, beta * s);
             B_slices[s * rows * cols + idx] = static_cast<int8_t>(scaled);
             bij -= B_s;
@@ -122,7 +120,7 @@ __global__ void slice_scheme2_A(
         int idx = row * cols + col;
         double scaled = ldexp(A[idx], shifts[row]);
 
-        // Protection against INT64 overflow for 19+ slices
+        // Protection against 64-bit overflow for 19+ slices
         if (fabs(scaled) < 9.0e18) {
             // Fast path: fits perfectly in 64-bit int
             int64_t truncated_val = static_cast<int64_t>(llrint(scaled));
@@ -174,7 +172,7 @@ __global__ void slice_scheme2_B(
     if (row < rows && col < cols) {
         int idx = row * cols + col;
         double scaled = ldexp(B[idx], shifts[col]);
-        // if slice count > 18, scaling factor is too large and ldexp causes overflow
+        // Protection against 64-bit overflow for 19+ slices
         if (fabs(scaled) < 9.0e18) {
             int64_t truncated_val = static_cast<int64_t>(llrint(scaled));
             for (int s = 0; s < slices; ++s) {

@@ -3,7 +3,7 @@
 # ==========================================
 
 # We define this as an INTERFACE library because template implementations
-# must reside in the header files. No separate compilation is required.
+# Must reside in the header files. No separate compilation is required.
 add_library(ozablas_utils INTERFACE)
 
 # Expose the current directory so that targets linking against ozablas_utils

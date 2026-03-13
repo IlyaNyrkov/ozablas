@@ -39,7 +39,8 @@ WorkspaceScheme1::WorkspaceScheme1(std::shared_ptr<const Executor> exec, size_t 
         exec_->allocate((void**)&d_C_tc_, total_gemms * M_ * N_ * sizeof(int32_t));
 
     } catch (const std::exception& e) {
-        // If an allocation fails midway, the destructor won't run. We must clean up manually.
+        // If an allocation fails midway, the destructor won't run.
+        // Cleanup called manually
         this->~WorkspaceScheme1();
         throw;
     }

@@ -73,7 +73,7 @@ __global__ void reconstruct_scheme2_leq7(
             uint64_t M = OZA_c_M_prod_20[slices - 1][0];
             uint64_t M_half = OZA_c_M_half_20[slices - 1][0];
         #else
-            uint64_t M = 1; uint64_t M_half = 0; // <-- This and the #endif were missing!
+            uint64_t M = 1; uint64_t M_half = 0;
         #endif
 
         uint64_t acc = 0;

@@ -39,7 +39,7 @@ std::vector<T> compute_exact_gemm_fp128(const std::vector<T>& A, const std::vect
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < M; ++i) {
 
-        // Print progress every 512 rows
+        // Print progress every 512 rows (to know its not stuck)
         if (i % 512 == 0) {
             #pragma omp critical
             {

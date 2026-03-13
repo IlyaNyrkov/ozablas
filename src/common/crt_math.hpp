@@ -28,7 +28,7 @@ struct uint256_t {
         data[0] = l0; data[1] = l1; data[2] = l2; data[3] = l3;
     }
 
-    // Construct from the constexpr arrays easily
+    // Construct from the constexpr arrays
     OZA_HOST_DEVICE uint256_t(const uint64_t arr[4]) {
         data[0] = arr[0]; data[1] = arr[1]; data[2] = arr[2]; data[3] = arr[3];
     }

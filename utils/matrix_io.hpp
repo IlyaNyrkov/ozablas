@@ -18,8 +18,6 @@ namespace io {
     // -----------------------------------------------------------------
     template <typename T>
     inline void print_val(const T& val, int width = 12) {
-        // FIXED: Cast to double instead of float to preserve FP64 precision!
-        // Added std::scientific because Ozaki generates extreme exponents.
         std::cout << std::setw(width) << std::setprecision(4) << std::scientific
                   << static_cast<double>(val) << " ";
     }
@@ -63,7 +61,6 @@ namespace io {
     template <typename T>
     void print_error_metrics(const matrix_utils::compare::ErrorMetrics<T>& metrics) {
         std::cout << "--- Accuracy Validation ---\n";
-        // Using high precision here so you can verify it reaches FP64 tolerance
         std::cout << "Max Absolute Error:       " << std::scientific << std::setprecision(8)
                   << static_cast<double>(metrics.max_abs_error) << "\n";
         std::cout << "Frobenius Norm Error:     " << static_cast<double>(metrics.frobenius_error) << "\n";

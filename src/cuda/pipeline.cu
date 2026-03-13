@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <memory>
 
-// Include our shared __device__ math and logic
 #include "pipeline/step1_statistics.hpp"
 #include "pipeline/step2_slicing.hpp"
 #include "pipeline/step4_reconstruction.hpp"

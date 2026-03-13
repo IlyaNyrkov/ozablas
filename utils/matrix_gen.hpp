@@ -16,7 +16,7 @@ namespace matrix_utils {
             std::mt19937 rng(seed);
 
             // std::uniform_real_distribution generates in [0, 1).
-            // We do 1.0 - val to shift it strictly to (0, 1] as defined in the paper.
+            // We do 1.0 - val to shift it strictly to (0, 1] as defined in Ozaki I&II papers.
             std::uniform_real_distribution<T> unif(0.0, 1.0);
 
             // Standard normal distribution (mean 0.0, stddev 1.0)

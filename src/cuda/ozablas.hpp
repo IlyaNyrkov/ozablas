@@ -1,7 +1,7 @@
 #pragma once
 
-// We include the full workspace definition here because the backend
-// implementations will need to call ws.get_M(), ws.get_A_slices(), etc.
+// Include the full workspace definition because the backend
+// implementations will need to call ws.get_M(), ws.get_A_slices() and other Workspace methods.
 #include "ozablas/core/workspace.hpp"
 
 namespace ozablas {

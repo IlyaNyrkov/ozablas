@@ -27,7 +27,7 @@ namespace compare {
         }
 
         T max_abs = static_cast<T>(0.0);
-        T max_rel = static_cast<T>(0.0); // Tracking max relative error
+        T max_rel = static_cast<T>(0.0);
         T sum_sq_diff = static_cast<T>(0.0);
         T sum_sq_expected = static_cast<T>(0.0);
 
@@ -43,7 +43,7 @@ namespace compare {
                 max_abs = abs_diff;
             }
 
-            // 2. Max Relative Error (Using your robust zero-check logic)
+            // 2. Max Relative Error
             T rel_error = (std::abs(exp_val) > static_cast<T>(0.0)) ? (abs_diff / std::abs(exp_val)) : abs_diff;
             if (rel_error > max_rel) {
                 max_rel = rel_error;
