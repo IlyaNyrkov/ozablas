@@ -21,7 +21,6 @@ ozablas/
 │   │   ├── executor.cpp           # Implements malloc/free routing (The only place with #ifdefs).
 │   │   └── workspace.cpp          # Size calculations and allocations for the workspaces.
 │   ├── common/                    
-│   │   ├── hardware_traits.hpp    # Compile-time hardware tuning (Warp size, load size).
 │   │   ├── crt_tables.hpp         # Pure C++ constexpr arrays for Scheme II moduli and lookup tables.
 │   │   └── crt_math.hpp           # Custom 256-bit struct (`uint256_t`) and math (`add_256`, `sub_256`) for large slices.
 │   ├── pipeline/                  # The 4 anatomical steps of the algorithm.

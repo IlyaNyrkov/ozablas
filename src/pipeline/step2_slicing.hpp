@@ -29,11 +29,8 @@ __device__ inline int8_t symmetric_mod_8(int64_t a, uint8_t m) {
     int64_t im = static_cast<int64_t>(m);
     int64_t r = a % im;
     int64_t half_m = im >> 1;
-
-    // Shift remainder into the symmetric range [-m/2, m/2]
     if (r > half_m) r -= im;
     else if (r < -half_m) r += im;
-
     return static_cast<int8_t>(r);
 }
 
@@ -136,16 +133,12 @@ __global__ void slice_scheme2_A(
 
     if (row < rows && col < cols) {
         int idx = row * cols + col;
-
-        // Scale and truncate
         int64_t truncated_val = static_cast<int64_t>(llrint(ldexp(A[idx], shifts[row])));
-
-        // Unlike Scheme I, Scheme II slices are independent and can be unrolled
         for (int s = 0; s < slices; ++s) {
             #if defined(__CUDACC__) || defined(__HIPCC__)
-                uint8_t m = c_moduli_all[s]; // Read directly from __constant__ cache
+                uint8_t m = OZA_c_moduli_all[s];
             #else
-                uint8_t m = crt::moduli_all[s]; // Fallback for CPU compilation
+                uint8_t m = crt::moduli_all[s];
             #endif
 
             A_slices[s * rows * cols + idx] = symmetric_mod_8(truncated_val, m);
@@ -167,12 +160,10 @@ __global__ void slice_scheme2_B(
 
     if (row < rows && col < cols) {
         int idx = row * cols + col;
-
         int64_t truncated_val = static_cast<int64_t>(llrint(ldexp(B[idx], shifts[col])));
-
         for (int s = 0; s < slices; ++s) {
             #if defined(__CUDACC__) || defined(__HIPCC__)
-                uint8_t m = c_moduli_all[s];
+                uint8_t m = OZA_c_moduli_all[s];
             #else
                 uint8_t m = crt::moduli_all[s];
             #endif

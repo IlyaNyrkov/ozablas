@@ -11,10 +11,6 @@ namespace ozablas {
 namespace pipeline {
 
 // =============================================================================
-// GLOBAL CONSTANT MEMORY DECLARATIONS
-// =============================================================================
-
-// =============================================================================
 // SCHEME I RECONSTRUCTION
 // =============================================================================
 
@@ -75,12 +71,12 @@ __global__ void reconstruct_scheme1(
  * @brief Fast-path reconstruction for <= 7 slices using native 64-bit math.
  * Avoids uint256 overhead by leveraging standard hardware registers.
  */
-    __global__ void reconstruct_scheme2_leq7(
-        const int32_t* __restrict__ C_tc,
-        const int32_t* __restrict__ shift_A,
-        const int32_t* __restrict__ shift_B,
-        int rows, int cols, int slices,
-        double* __restrict__ C_out)
+__global__ void reconstruct_scheme2_leq7(
+    const int32_t* __restrict__ C_tc,
+    const int32_t* __restrict__ shift_A,
+    const int32_t* __restrict__ shift_B,
+    int rows, int cols, int slices,
+    double* __restrict__ C_out)
 {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -88,26 +84,23 @@ __global__ void reconstruct_scheme1(
     if (row < rows && col < cols) {
         int idx = row * cols + col;
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
-        // Read the lowest 64-bits directly from the 256-bit tables
-        uint64_t M = c_M_prod_20[slices - 1][0];
-        uint64_t M_half = c_M_half_20[slices - 1][0];
-#else
-        uint64_t M = 1; uint64_t M_half = 0;
-#endif
+        #if defined(__CUDACC__) || defined(__HIPCC__)
+            uint64_t M = OZA_c_M_prod_20[slices - 1][0];
+            uint64_t M_half = OZA_c_M_half_20[slices - 1][0];
+        #else
+            uint64_t M = 1; uint64_t M_half = 0; // <-- This and the #endif were missing!
+        #endif
 
         uint64_t acc = 0;
 
         for (int s = 0; s < slices; ++s) {
-#if defined(__CUDACC__) || defined(__HIPCC__)
-            uint32_t m_i = c_moduli_all[s];
-            // Read lowest 64-bits of the partial moduli
-            uint64_t partial_mod = c_partial_moduli_20[slices - 1][s][0];
-            // The modular inverse table is already natively 64-bit
-            uint64_t inv = c_mod_inv_20[slices - 1][s];
-#else
-            uint32_t m_i = 1; uint64_t partial_mod = 1; uint64_t inv = 1;
-#endif
+            #if defined(__CUDACC__) || defined(__HIPCC__)
+                int32_t m_i = static_cast<int32_t>(OZA_c_moduli_all[s]);
+                uint64_t partial_mod = OZA_c_partial_moduli_20[slices - 1][s][0];
+                uint64_t inv = OZA_c_mod_inv_20[slices - 1][s];
+            #else
+                uint32_t m_i = 1; uint64_t partial_mod = 1; uint64_t inv = 1;
+            #endif
 
             int32_t val = C_tc[s * rows * cols + idx];
 
@@ -149,21 +142,21 @@ __global__ void reconstruct_scheme2_gt7(
         int idx = row * cols + col;
 
         #if defined(__CUDACC__) || defined(__HIPCC__)
-        crt::uint256_t M(c_M_prod_20[slices - 1]);
-        crt::uint256_t M_half(c_M_half_20[slices - 1]);
+            crt::uint256_t M(OZA_c_M_prod_20[slices - 1]);
+            crt::uint256_t M_half(OZA_c_M_half_20[slices - 1]);
         #else
-        crt::uint256_t M, M_half;
+            crt::uint256_t M, M_half;
         #endif
 
         crt::uint256_t acc; // Initializes to 0
 
         for (int s = 0; s < slices; ++s) {
             #if defined(__CUDACC__) || defined(__HIPCC__)
-            uint32_t m_i = c_moduli_all[s];
-            uint64_t inv = c_mod_inv_20[slices - 1][s];
-            const uint64_t* partial_mod_ptr = c_partial_moduli_20[slices - 1][s];
+                int32_t m_i = static_cast<int32_t>(OZA_c_moduli_all[s]);
+                uint64_t inv = OZA_c_mod_inv_20[slices - 1][s];
+                const uint64_t* partial_mod_ptr = OZA_c_partial_moduli_20[slices - 1][s];
             #else
-            uint32_t m_i = 1; uint64_t inv = 1; const uint64_t partial_mod_ptr[4] = {0};
+                uint32_t m_i = 1; uint64_t inv = 1; const uint64_t partial_mod_ptr[4] = {0};
             #endif
 
             int32_t val = C_tc[s * rows * cols + idx];

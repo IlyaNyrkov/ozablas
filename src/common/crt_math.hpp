@@ -73,9 +73,9 @@ OZA_HOST_DEVICE inline bool cmp_ge_256(const uint256_t& a, const uint256_t& b) {
 OZA_HOST_DEVICE inline double to_double_256(const uint256_t& a) {
     double res = 0.0;
     res += static_cast<double>(a.data[0]);
-    res += std::ldexp(static_cast<double>(a.data[1]), 64);
-    res += std::ldexp(static_cast<double>(a.data[2]), 128);
-    res += std::ldexp(static_cast<double>(a.data[3]), 192);
+    res += ldexp(static_cast<double>(a.data[1]), 64);
+    res += ldexp(static_cast<double>(a.data[2]), 128);
+    res += ldexp(static_cast<double>(a.data[3]), 192);
     return res;
 }
 

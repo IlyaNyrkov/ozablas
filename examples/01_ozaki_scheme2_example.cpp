@@ -24,9 +24,9 @@
 
 int main() {
     // Problem dimensions
-    const size_t M = 4096;
-    const size_t N = 4096;
-    const size_t K = 4096;
+    const size_t M = 8192;
+    const size_t N = 8192;
+    const size_t K = 8192;
 
     std::cout << "==========================================\n";
     std::cout << " OzaBLAS Scheme II Example (" << M << "x" << N << ")\n";
@@ -34,8 +34,8 @@ int main() {
 
     // 1. Generate random matrices
     std::cout << "Generating random matrices A and B...\n";
-    auto h_A = matrix_utils::generation::generate_ozaki_matrix<double>(M, K, 0.5, 42);
-    auto h_B = matrix_utils::generation::generate_ozaki_matrix<double>(K, N, 0.5, 43);
+    auto h_A = matrix_utils::generation::generate_ozaki_matrix<double>(M, K, 4, 42);
+    auto h_B = matrix_utils::generation::generate_ozaki_matrix<double>(K, N, 4, 43);
 
     std::vector<double> h_C_ref(M * N, 0.0);
     std::vector<double> h_C_ozaki(M * N, 0.0);
