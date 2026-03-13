@@ -5,7 +5,7 @@ OzaBLAS is a high-performance, multiplatform C++ library implementing Ozaki Sche
 ## Algorithm Anatomy
 OzaBLAS implements Ozaki Scheme I & II algorithms as four highly optimized pipeline stages, driving the $O(N^2)$ prep-work overhead down to near zero for large matrices.
 
-![ozaki scheme anatomy](docs/media/ozaki_scheme_anatomy.png)
+![ozaki scheme anatomy](docs/media/diagrams/ozaki_scheme_anatomy.png)
 
 ## Getting Started
 
@@ -150,7 +150,7 @@ ozablas/
 
 ```
 
-### Running Benchmarks
+## Running Benchmarks
 
 To evaluate the performance speedup or the exact precision error floor compared to a perfect FP128 software baseline, run the compiled benchmark executables:
 
@@ -158,3 +158,47 @@ To evaluate the performance speedup or the exact precision error floor compared 
 # E.g., Testing FP128 baseline accuracy for Scheme II
 ./build_hip_release/precision_benchmarks/02_ozaki_scheme2_fp128_benchmark
 ```
+
+### Performance Benchmarks (AMD MI210)
+
+To understand the performance characteristics of OzaBLAS, we must first look at the theoretical hardware limits. On the AMD MI210, the peak FP64/FP32 Matrix throughput is **45.3 TFLOPS**, while the peak INT4/INT8 throughput is **181.0 TOPS**.
+
+Because OzaBLAS breaks a single FP64 multiplication into multiple INT8 multiplications, we can determine our theoretical feasibility using the following equation:
+
+$$k < \frac{P_{INT8}}{P_{FP64}} = \frac{181.0 \text{ TOPS}}{45.3 \text{ TFLOPS}} \approx 4$$
+
+Where $k$ is the number of slices. To get a speedup $> 1$ over native FP64, we generally need to use fewer than 4 or 5 slices. Ultimately, it is a strict tradeoff: **more slices = better accuracy but worse performance**, while **less slices = worse accuracy but better performance**.
+
+Here is how OzaBLAS performs in reality on the MI210.
+
+#### Raw Throughput (TFLOPS) vs. Matrix Size
+As the matrix size increases, the heavy memory-bound prep work becomes negligible, allowing the INT8 Tensor Cores to stretch their legs. For $S=3$ and $S=4$, OzaBLAS significantly outperforms native `rocBLAS` FP64 DGEMM (represented by the black dashed line).
+
+| Scheme I (Sum and Scale) | Scheme II (CRT) |
+| :---: | :---: |
+| ![Throughput Scheme 1](docs/media/benchmarks/210_tp_to_matrix_size_scheme1.png) | ![Throughput Scheme 2](docs/media/benchmarks/210_tp_to_matrix_size_scheme2.png) |
+
+#### Throughput vs. Slice Count
+This illustrates scaling of the two schemes. Scheme II scales linearly ($O(S)$) utilizing Strided Batched GEMMs, whereas Scheme I scales quadratically ($O(S^2)$) as it must compute the cross-terms of every slice combination.
+
+| Scheme I | Scheme II |
+| :---: | :---: |
+| ![TP Slices Scheme 1](docs/media/benchmarks/210_tp_to_slices_scheme1.png) | ![TP Slices Scheme 2](docs/media/benchmarks/210_tp_to_slices_scheme2.png) |
+
+#### Pipeline Execution Time Breakdown
+The core theoretical advantage of the Ozaki scheme is that computing matrix statistics and slicing and accumulation ($O(N^2)$) becomes mathematically insignificant compared to the actual GEMM multiplication ($O(N^3)$) as matrices grow large. These breakdowns prove that at large sizes ($N > 8192$), over 95% of the execution time is spent purely inside the Tensor Cores.
+
+**Breakdown by Matrix Size:**
+
+**Ozaki Scheme 1**
+![Step by Size Scheme 1](docs/media/benchmarks/210_step_bench_to_mt_size_scheme1.png)
+
+**Ozaki Scheme 2**
+![Step by Size Scheme 2](docs/media/benchmarks/210_step_bench_to_mt_size_scheme2.png) |
+
+**Breakdown by Slice Count:**
+**Ozaki Scheme 1**
+![Step by Slices Scheme 1](docs/media/benchmarks/210_step_bench_to_slices_scheme1.png)
+
+**Ozaki Scheme 2**
+![Step by Slices Scheme 2](docs/media/benchmarks/210_step_bench_to_slices_scheme2.png) |
