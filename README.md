@@ -177,14 +177,14 @@ As the matrix size increases, the heavy memory-bound prep work becomes negligibl
 | ![Throughput Scheme 1](docs/media/benchmarks/210_tp_to_matrix_size_scheme1.png) | ![Throughput Scheme 2](docs/media/benchmarks/210_tp_to_matrix_size_scheme2.png) |
 
 #### Throughput vs. Slice Count
-This illustrates scaling of the two schemes. Scheme II scales linearly ($O(S)$) utilizing Strided Batched GEMMs, whereas Scheme I scales quadratically ($O(S^2)$) as it must compute the cross-terms of every slice combination.
+This illustrates scaling of the two schemes. Scheme II scales linearly O(S) utilizing Strided Batched GEMMs, whereas Scheme I scales quadratically O(S^2) as it must compute the cross-terms of every slice combination.
 
 | Scheme I | Scheme II |
 | :---: | :---: |
 | ![TP Slices Scheme 1](docs/media/benchmarks/210_tp_to_slices_scheme1.png) | ![TP Slices Scheme 2](docs/media/benchmarks/210_tp_to_slices_scheme2.png) |
 
 #### Pipeline Execution Time Breakdown
-The core theoretical advantage of the Ozaki scheme is that computing matrix statistics and slicing and accumulation ($O(N^2)$) becomes mathematically insignificant compared to the actual GEMM multiplication ($O(N^3)$) as matrices grow large. These breakdowns prove that at large sizes ($N > 8192$), over 95% of the execution time is spent purely inside the Tensor Cores.
+The core theoretical advantage of the Ozaki scheme is that computing matrix statistics and slicing and accumulation O(N^2) becomes mathematically insignificant compared to the actual GEMM multiplication O(N^3) as matrices grow large. These breakdowns prove that at large sizes ($N > 8192$), over 95% of the execution time is spent purely inside the Tensor Cores.
 
 **Breakdown by Matrix Size:**
 
@@ -200,3 +200,17 @@ The core theoretical advantage of the Ozaki scheme is that computing matrix stat
 
 **Ozaki Scheme 2**
 ![Step by Slices Scheme 2](docs/media/benchmarks/210_step_bench_to_slices_scheme2.png)
+
+## Accuracy Validation
+
+To validate the numerical stability of OzaBLAS, both schemes were evaluated against a mathematically perfect 128-bit precision (FP128) CPU baseline (implemented in utils/matrix_reference.hpp). The graphs below plot the worst-case maximum relative error against the slice count, tested across matrices with varying dynamic ranges ($\phi$).
+
+*Note: These precision metrics were captured on an AMD Instinct MI210. Microscopic variations in the exact crossing points or error floors may occur across different hardware architectures (e.g., NVIDIA vs AMD) due to underlying differences in FMA instruction handling and reduction tree topologies.*
+
+**Ozaki Scheme I:**
+![Accuracy Scheme I](docs/media/benchmarks/accuracy_comp_ozaki_1.png)
+
+**Ozaki Scheme II:**
+![Accuracy Scheme II](docs/media/benchmarks/accuracy_comp_ozaki_2.png)
+
+As demonstrated, both implementations successfully bypass vendor baselines (rocblas). As the slice count increases, both algorithms reliably cross the native `DGEMM` FP64 baseline (black line). Scheme I converges sharply to the machine epsilon floor ($\sim 10^{-16}$), while Scheme II utilizes the 256-bit extended precision fallback to maintain steady log-linear convergence even at extreme dynamic ranges ($\phi = 4.0$).
