@@ -3,6 +3,8 @@
 #include <memory>
 #include <iomanip>
 #include <chrono>
+#include <map>
+#include <algorithm>
 
 #include "ozablas/ozablas.hpp"
 #include "ozablas/core/workspace.hpp"
@@ -22,117 +24,156 @@
 #include <rocblas/rocblas.h>
 #endif
 
+// Structure to hold data for the final summary report
+struct ResultRecord {
+    size_t size;
+    double phi;
+    double vendor_err;
+    std::vector<std::pair<int, double>> ozaki_errs;
+};
+
 int main() {
-    // Note: FP128 CPU math is extremely computationally heavy.
-    // M=1024 takes a few seconds. M=4096 or 8192 will take several minutes to an hour on CPU.
-    const size_t M = 1024;
-    const size_t N = 1024;
-    const size_t K = 1024;
-    const double phi = 4.0; // Extreme dynamic range to force FP64 errors
+    // Configurations
+    std::vector<size_t> sizes = {1024};
+    std::vector<double> phis = {0.0, 1.0, 2.0, 4.0};
+    std::vector<int> test_slices = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+    const int ITERS = 5;
 
-    std::cout << "========================================================\n";
-    std::cout << " OzaBLAS Scheme I vs FP128 Ground Truth (" << M << "x" << N << ")\n";
-    std::cout << "========================================================\n\n";
-
-    // 1. Generate random matrices
-    std::cout << "[1/4] Generating random matrices A and B (phi=" << phi << ")...\n";
-    auto h_A = matrix_utils::generation::generate_ozaki_matrix<double>(M, K, phi, 42);
-    auto h_B = matrix_utils::generation::generate_ozaki_matrix<double>(K, N, phi, 43);
-
-    std::vector<double> h_C_ref(M * N, 0.0);
-    std::vector<double> h_C_ozaki(M * N, 0.0);
-
-    // 2. Compute the exact mathematically perfect answer on the CPU using 128-bit precision
-    std::cout << "\n[2/4] Computing true mathematical answer (FP128) on CPU...\n";
-    auto start_cpu = std::chrono::high_resolution_clock::now();
-
-    std::vector<double> h_C_exact = matrix_utils::reference::compute_exact_gemm_fp128(h_A, h_B, M, N, K);
-
-    auto end_cpu = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_cpu = end_cpu - start_cpu;
-    std::cout << "      Done in " << diff_cpu.count() << " seconds.\n\n";
-
-    // 3. Initialize Hardware Executor
     std::shared_ptr<ozablas::Executor> exec;
 #ifdef OZA_BUILD_CUDA
-    std::cout << "[3/4] Initializing NVIDIA CUDA Executor...\n";
     exec = std::make_shared<ozablas::CudaExecutor>(0);
 #elif defined(OZA_BUILD_HIP)
-    std::cout << "[3/4] Initializing AMD HIP Executor...\n";
     exec = std::make_shared<ozablas::HipExecutor>(0);
 #else
-    std::cerr << "Error: OzaBLAS must be built with either CUDA or HIP enabled.\n";
     return 1;
 #endif
 
-    double *d_A, *d_B, *d_C_ref, *d_C_ozaki;
-    exec->allocate((void**)&d_A, M * K * sizeof(double));
-    exec->allocate((void**)&d_B, K * N * sizeof(double));
-    exec->allocate((void**)&d_C_ref, M * N * sizeof(double));
-    exec->allocate((void**)&d_C_ozaki, M * N * sizeof(double));
+    std::vector<ResultRecord> all_results;
 
-    exec->copy_from_host(d_A, h_A.data(), M * K * sizeof(double));
-    exec->copy_from_host(d_B, h_B.data(), K * N * sizeof(double));
+    // Print CSV Header to stdout
+    std::cout << "Algorithm,Size,Phi,Slices,MaxRelativeError\n";
 
-    // 4. Compute Reference GEMM using Native Vendor BLAS
-    std::cout << "\n[4/4] Computing native GPU reference (FP64)...\n";
-    const double alpha = 1.0;
-    const double beta = 0.0;
+    for (size_t N : sizes) {
+        size_t M = N, K = N;
 
+        // Allocate device memory once per matrix size to save overhead
+        double *d_A, *d_B, *d_C_ref, *d_C_ozaki;
+        exec->allocate((void**)&d_A, M * K * sizeof(double));
+        exec->allocate((void**)&d_B, K * N * sizeof(double));
+        exec->allocate((void**)&d_C_ref, M * N * sizeof(double));
+        exec->allocate((void**)&d_C_ozaki, M * N * sizeof(double));
+
+        std::vector<double> h_C_ref(M * N, 0.0);
+        std::vector<double> h_C_ozaki(M * N, 0.0);
+
+        for (double phi : phis) {
+            double worst_vendor_err = 0.0;
+            std::map<int, double> worst_ozaki_err;
+            for (int s : test_slices) worst_ozaki_err[s] = 0.0;
+
+            for (int iter = 0; iter < ITERS; ++iter) {
+                // 1. Generate NEW random matrices by using iter as an offset for the RNG seed
+                auto h_A = matrix_utils::generation::generate_ozaki_matrix<double>(M, K, phi, 42 + iter);
+                auto h_B = matrix_utils::generation::generate_ozaki_matrix<double>(K, N, phi, 43 + iter);
+
+                // 2. Compute exact FP128 ground truth on CPU
+                auto h_C_exact = matrix_utils::reference::compute_exact_gemm_fp128(h_A, h_B, M, N, K);
+
+                // Copy the newly generated matrices to the GPU device
+                exec->copy_from_host(d_A, h_A.data(), M * K * sizeof(double));
+                exec->copy_from_host(d_B, h_B.data(), K * N * sizeof(double));
+
+                // 3. Compute Native Vendor BLAS (FP64)
+                const double alpha = 1.0, beta_val = 0.0;
 #ifdef OZA_BUILD_CUDA
-    cublasHandle_t handle = static_cast<cublasHandle_t>(exec->get_blas_handle());
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K,
-                &alpha, d_B, N, d_A, K, &beta, d_C_ref, N);
+                cublasHandle_t handle = static_cast<cublasHandle_t>(exec->get_blas_handle());
+                cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K,
+                            &alpha, d_B, N, d_A, K, &beta_val, d_C_ref, N);
 #elif defined(OZA_BUILD_HIP)
-    rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
-    rocblas_dgemm(handle, rocblas_operation_none, rocblas_operation_none,
-                  N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C_ref, N);
+                rocblas_handle handle = static_cast<rocblas_handle>(exec->get_blas_handle());
+                rocblas_dgemm(handle, rocblas_operation_none, rocblas_operation_none,
+                              N, M, K, &alpha, d_B, N, d_A, K, &beta_val, d_C_ref, N);
 #endif
+                exec->synchronize();
+                exec->copy_to_host(h_C_ref.data(), d_C_ref, M * N * sizeof(double));
 
-    exec->synchronize();
-    exec->copy_to_host(h_C_ref.data(), d_C_ref, M * N * sizeof(double));
+                // Track the worst-case error for Native FP64
+                auto ref_metrics = matrix_utils::compare::compute_errors(h_C_exact, h_C_ref);
+                worst_vendor_err = std::max(worst_vendor_err, ref_metrics.max_relative_error);
 
-    // Evaluate Vendor BLAS limitations
-    std::cout << "\n========================================================\n";
-    std::cout << " NATIVE VENDOR BLAS (FP64) vs FP128 EXACT\n";
-    std::cout << "========================================================\n";
-    auto ref_metrics = matrix_utils::compare::compute_errors(h_C_exact, h_C_ref);
-    matrix_utils::compare::print_metrics(ref_metrics);
+                // 4. Ozaki Scheme I Slices Sweep
+                for (int slices : test_slices) {
+                    exec->copy_from_host(d_C_ozaki, h_C_ozaki.data(), M * N * sizeof(double)); // Zero out the target
 
-    // 5. Test Ozaki Scheme I at various slice counts against the FP128 EXACT
-    // Max useful slices is roughly 8 (since FP64 mantissa is 53 bits and beta <= 7).
-    std::vector<int> test_slices = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+                    ozablas::WorkspaceScheme1 ws(exec, M, N, K, slices);
+                    ozablas::ozaki_scheme1_gemm(ws, d_A, d_B, d_C_ozaki);
+                    exec->synchronize();
 
-    std::cout << "\n========================================================\n";
-    std::cout << " OZAKI SCHEME I (INT8 TC) vs FP128 EXACT\n";
-    std::cout << "========================================================\n";
-    for (int slices : test_slices) {
-        std::cout << "\n--- Running Ozaki Scheme I with " << slices << " slices ---\n";
+                    exec->copy_to_host(h_C_ozaki.data(), d_C_ozaki, M * N * sizeof(double));
 
-        exec->copy_from_host(d_C_ozaki, h_C_ozaki.data(), M * N * sizeof(double)); // Zero out
+                    // Track the worst-case error for this specific slice count
+                    auto ozaki_metrics = matrix_utils::compare::compute_errors(h_C_exact, h_C_ozaki);
+                    worst_ozaki_err[slices] = std::max(worst_ozaki_err[slices], ozaki_metrics.max_relative_error);
+                }
+            }
 
-        // Workspace for Scheme 1!
-        ozablas::WorkspaceScheme1 ws(exec, M, N, K, slices);
+            // Print the worst-case CSV records to stdout for this Phi value
+            std::cout << "Native DGEMM," << N << "," << std::fixed << std::setprecision(1) << phi << ",-,"
+                      << std::scientific << std::setprecision(6) << worst_vendor_err << "\n";
 
-        // Execute Scheme 1
-        ozablas::ozaki_scheme1_gemm(ws, d_A, d_B, d_C_ozaki);
-        exec->synchronize();
+            ResultRecord record;
+            record.size = N;
+            record.phi = phi;
+            record.vendor_err = worst_vendor_err;
 
-        exec->copy_to_host(h_C_ozaki.data(), d_C_ozaki, M * N * sizeof(double));
+            for (int slices : test_slices) {
+                std::cout << "Scheme I," << N << "," << std::fixed << std::setprecision(1) << phi << "," << slices << ","
+                          << std::scientific << std::setprecision(6) << worst_ozaki_err[slices] << "\n";
+                std::cout << std::flush; // Ensure output streams periodically
 
-        // Compare Ozaki to the EXACT FP128 matrix, not the Vendor BLAS matrix
-        auto ozaki_metrics = matrix_utils::compare::compute_errors(h_C_exact, h_C_ozaki);
+                record.ozaki_errs.push_back({slices, worst_ozaki_err[slices]});
+            }
+            all_results.push_back(record);
+        }
 
-        std::cout << "Max Relative Error:       " << std::scientific << ozaki_metrics.max_relative_error << "\n";
-        std::cout << "Relative Frobenius Error: " << std::scientific << ozaki_metrics.relative_frobenius_error << "\n";
+        exec->free(d_A);
+        exec->free(d_B);
+        exec->free(d_C_ref);
+        exec->free(d_C_ozaki);
     }
 
-    // Cleanup
-    exec->free(d_A);
-    exec->free(d_B);
-    exec->free(d_C_ref);
-    exec->free(d_C_ozaki);
+    // =========================================================================
+    // Print Summary Report
+    // =========================================================================
+    std::cout << "\n\n========================================================================\n";
+    std::cout << " SUMMARY REPORT: SCHEME I PRECISION CROSSOVER POINTS\n";
+    std::cout << "========================================================================\n";
+    std::cout << "Size\tPhi\tVendor Error (Max)\tCrossover Slices\tOzaki Error (Max)\n";
+    std::cout << "------------------------------------------------------------------------\n";
 
-    std::cout << "\nDone!\n";
+    for (const auto& res : all_results) {
+        int crossover_slice = -1;
+        double crossover_err = 0.0;
+
+        // Find the lowest slice count where Ozaki mathematically beats/matches native FP64
+        for (const auto& pair : res.ozaki_errs) {
+            if (pair.second <= res.vendor_err) {
+                crossover_slice = pair.first;
+                crossover_err = pair.second;
+                break;
+            }
+        }
+
+        std::cout << res.size << "\t"
+                  << std::fixed << std::setprecision(1) << res.phi << "\t"
+                  << std::scientific << std::setprecision(4) << res.vendor_err << "\t\t";
+
+        if (crossover_slice != -1) {
+            std::cout << crossover_slice << "\t\t\t" << crossover_err << "\n";
+        } else {
+            std::cout << "None\t\t\tN/A\n";
+        }
+    }
+
     return 0;
 }

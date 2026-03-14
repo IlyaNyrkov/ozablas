@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <iostream>
 
 // Standard compiler extension for 128-bit floats in GCC and Clang
 #if defined(__GNUC__) || defined(__clang__)
@@ -23,7 +22,6 @@ template <typename T>
 std::vector<T> compute_exact_gemm_fp128(const std::vector<T>& A, const std::vector<T>& B, size_t M, size_t N, size_t K) {
     std::vector<T> C(M * N, static_cast<T>(0.0));
 
-    std::cout << "[Reference] Transposing B to optimize CPU cache..." << std::endl;
     std::vector<T> B_T(K * N);
 
     #pragma omp parallel for collapse(2)
@@ -33,20 +31,9 @@ std::vector<T> compute_exact_gemm_fp128(const std::vector<T>& A, const std::vect
         }
     }
 
-    std::cout << "[Reference] Computing FP128 exact GEMM (this will take a while for large N)..." << std::endl;
-
     // Use OpenMP to parallelize the row computations across all CPU cores
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < M; ++i) {
-
-        // Print progress every 512 rows (to know its not stuck)
-        if (i % 512 == 0) {
-            #pragma omp critical
-            {
-                std::cout << "  -> Computed " << i << " / " << M << " rows" << std::endl;
-            }
-        }
-
         for (size_t j = 0; j < N; ++j) {
             fp128_t sum = 0.0;
 
@@ -60,7 +47,6 @@ std::vector<T> compute_exact_gemm_fp128(const std::vector<T>& A, const std::vect
         }
     }
 
-    std::cout << "[Reference] FP128 computation complete!" << std::endl;
     return C;
 }
 
